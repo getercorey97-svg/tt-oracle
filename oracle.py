@@ -11,11 +11,8 @@ class TTOracleSOTA:
         self.load_db()
 
     def load_db(self):
-        if os.path.exists(self.db_path):
-            with open(self.db_path, 'r') as f:
-                self.db = json.load(f)
-        else:
-            self.db = {"players": {}, "settings": {"base_rating": 1500, "base_rd": 350, "base_vol": 0.06}}
+        with open(self.db_path, 'r') as f:
+            self.db = json.load(f)
 
     def save_db(self):
         with open(self.db_path, 'w') as f:
@@ -24,113 +21,100 @@ class TTOracleSOTA:
     def get_player(self, name):
         if name not in self.db['players']:
             self.db['players'][name] = {
-                "name": name, "rating": self.db['settings']['base_rating'],
-                "rd": self.db['settings']['base_rd'], "vol": self.db['settings']['base_vol'],
-                "style": "Attacker", "hand": "Right", "rubber": "Inverted"
+                "name": name, "rating": 1500, "rd": 350, "vol": 0.06,
+                "style": "Attacker", "hand": "Right", "rubber": "Inverted",
+                "league": "Default", "matches_today": 0
             }
         p = self.db['players'][name]
         return Player(p['rating'], p['rd'], p['vol']), p
 
-    def get_style_bias(self, p1_d, p2_d):
-        weights = self.db.get('style_weights', {"lefty_bonus": 0.018, "pips_penalty": 0.035})
-        bias = 0.0
-        if p1_d['hand'] == 'Left' and p2_d['hand'] == 'Right': bias += weights['lefty_bonus']
-        if p2_d['rubber'] in ['Long Pips', 'Anti'] and p1_d['style'] == 'Attacker': bias -= weights['pips_penalty']
-        return bias
-
-    def vectorized_simulation(self, p1_pt_prob, iterations=50000):
-        """
-        SOTA Vectorized Monte Carlo: Simulates 50k matches 
-        simultaneously using Matrix Math. 100x faster.
-        """
-        p1_games_won = np.zeros(iterations)
-        p2_games_won = np.zeros(iterations)
-
-        # Simulate until one player wins 3 games
-        while np.max(p1_games_won) < 3 and np.max(p2_games_won) < 3:
-            # Point-by-point simulation for 50k sets simultaneously
-            p1_pts = np.zeros(iterations)
-            p2_pts = np.zeros(iterations)
-            active = (p1_games_won < 3) & (p2_games_won < 3)
-
-            while True:
-                # Roll for 50,000 points at once
-                rolls = np.random.random(iterations)
-                p1_pts[active & (rolls < p1_pt_prob)] += 1
-                p2_pts[active & (rolls >= p1_pt_prob)] += 1
-                
-                # Check for set winners (11 pts and lead by 2)
-                p1_set_win = active & (p1_pts >= 11) & (p1_pts - p2_pts >= 2)
-                p2_set_win = active & (p2_pts >= 11) & (p2_pts - p1_pts >= 2)
-                
-                p1_games_won[p1_set_win] += 1
-                p2_games_won[p2_set_win] += 1
-                
-                # Stop if all active simulations finished a set
-                active[p1_set_win | p2_set_win] = False
-                if not np.any(active):
-                    break
-        
-        return np.mean(p1_games_won >= 3)
-
-    def predict(self, p1_name, p2_name, market_odds=None):
+    def calculate_sota_point_prob(self, p1_name, p2_name):
+        """The Master Algorithm: Synthesizes all variables into a single point-prob."""
         p1_obj, p1_d = self.get_player(p1_name)
         p2_obj, p2_d = self.get_player(p2_name)
         
-        # Skill-based point-win probability
-        expected_p1 = 1 / (1 + 10**((p2_obj.rating - p1_obj.rating) / 400))
-        p1_pt_prob = 0.50 + (expected_p1 - 0.5) * 0.18 + self.get_style_bias(p1_d, p2_d)
+        # 1. League-Weighted Rating Difference
+        l_mult = self.db['league_multipliers']
+        p1_eff = p1_obj.rating * l_mult.get(p1_d['league'], 0.9)
+        p2_eff = p2_obj.rating * l_mult.get(p2_d['league'], 0.9)
         
-        # Run Vectorized Simulation
-        prob_p1 = self.vectorized_simulation(p1_pt_prob)
-        prob_p2 = 1 - prob_p1
+        # 2. Base Probability (Glicko-2)
+        # Using 0.22 as the Table Tennis scaling constant
+        base_diff = (p1_eff - p2_eff)
+        win_prob_match = 1 / (1 + 10**(-base_diff / 400))
+        p = 0.50 + (win_prob_match - 0.5) * 0.22
         
-        winner = p1_name if prob_p1 > prob_p2 else p2_name
-        conf = max(prob_p1, prob_p2)
+        # 3. Style Interaction Matrix
+        sm = self.db['style_matrix']
+        if p1_d['hand'] == 'Left' and p2_d['hand'] == 'Right': p += sm['lefty_vs_righty_bonus']
+        if p2_d['rubber'] == 'Long Pips' and p1_d['style'] == 'Attacker': p -= sm['long_pips_vs_attacker_penalty']
+        if p2_d['rubber'] == 'Anti' and p1_d['style'] == 'Attacker': p -= sm['anti_spin_vs_power_bonus']
+        
+        # 4. Fatigue Modeling
+        # SOTA: Performance drops 0.7% for every match played previously today
+        p -= (p1_d.get('matches_today', 0) * sm['fatigue_decay_rate'])
+        p += (p2_d.get('matches_today', 0) * sm['fatigue_decay_rate'])
 
-        print(f"Match: {p1_name} vs {p2_name} | Predict: {winner} ({conf:.1%})")
+        # 5. Stochastic Uncertainty (Using RD)
+        # If RD is high, we introduce a random 'form' variance for this simulation cycle
+        p1_form = np.random.normal(0, p1_obj.rd / 2000)
+        p2_form = np.random.normal(0, p2_obj.rd / 2000)
+        p += (p1_form - p2_form)
 
-        if market_odds:
-            m_prob = 1 / market_odds
-            # Edge is relative to the predicted winner
-            actual_prob = prob_p1 if winner == p1_name else prob_p2
-            edge = actual_prob - m_prob
+        return np.clip(p, 0.30, 0.70)
+
+    def vectorized_monte_carlo(self, p_win, iterations=50000):
+        """Simulates 50,000 matches simultaneously in memory."""
+        p1_sets = np.zeros(iterations)
+        p2_sets = np.zeros(iterations)
+
+        while np.max(p1_sets) < 3 and np.max(p2_sets) < 3:
+            p1_pts = np.zeros(iterations)
+            p2_pts = np.zeros(iterations)
+            active = (p1_sets < 3) & (p2_sets < 3)
             
-            # Send alert if edge is found
-            if edge > 0.02: # Alert if >2% edge for SOTA visibility
-                self.send_alert(p1_name, p2_name, winner, conf, edge)
+            # Simulate a Set
+            while np.any(active):
+                rolls = np.random.random(iterations)
+                p1_pts[active & (rolls < p_win)] += 1
+                p2_pts[active & (rolls >= p_win)] += 1
+                
+                set_ended = active & (((p1_pts >= 11) | (p2_pts >= 11)) & (np.abs(p1_pts - p2_pts) >= 2))
+                p1_sets[set_ended & (p1_pts > p2_pts)] += 1
+                p2_sets[set_ended & (p2_pts > p1_pts)] += 1
+                active[set_ended] = False
+                
+        return np.mean(p1_sets >= 3)
+
+    def predict_queue(self):
+        if not os.path.exists('queue_predict.json'):
+            return
         
-        return winner, conf
+        with open('queue_predict.json', 'r') as f:
+            matches = json.load(f)
+
+        for m in matches:
+            p1, p2 = m['p1'], m['p2']
+            market_odds = m.get('odds', 2.0)
+            
+            # Run simulation with the integrated SOTA p-prob
+            p_win = self.calculate_sota_point_prob(p1, p2)
+            sim_result = self.vectorized_monte_carlo(p_win)
+            
+            winner = p1 if sim_result > 0.5 else p2
+            confidence = sim_result if sim_result > 0.5 else 1 - sim_result
+            
+            # Edge Calculation
+            market_prob = 1 / market_odds
+            edge = confidence - market_prob if winner == p1 else confidence - (1 - market_prob)
+            
+            if edge > 0.02: # Alert if edge > 2%
+                self.send_alert(p1, p2, winner, confidence, edge)
 
     def send_alert(self, p1, p2, winner, conf, edge):
-        msg = f"🎯 WINNER: {winner}\nConf: {conf:.1%}\nEdge: {edge:.1%}\nMatch: {p1} vs {p2}"
+        msg = f"💎 SOTA EDGE: {winner}\nConf: {conf:.1%}\nEdge: +{edge:.1%}\nMatch: {p1} vs {p2}"
         requests.post(self.ntfy_url, data=msg.encode('utf-8'))
-
-    def update_learning(self, p1_name, p2_name, winner_name):
-        p1_obj, _ = self.get_player(p1_name)
-        p2_obj, _ = self.get_player(p2_name)
-        res = 1 if winner_name == p1_name else 0
-        p1_obj.update_player([p2_obj.rating], [p2_obj.rd], [res])
-        p2_obj.update_player([p1_obj.rating], [p1_obj.rd], [1-res])
-        self.db['players'][p1_name].update({"rating": p1_obj.rating, "rd": p1_obj.rd, "vol": p1_obj.vol})
-        self.db['players'][p2_name].update({"rating": p2_obj.rating, "rd": p2_obj.rd, "vol": p2_obj.vol})
-        self.save_db()
 
 if __name__ == "__main__":
     oracle = TTOracleSOTA()
-    
-    # 1. Process Learning
-    if os.path.exists('queue_results.json'):
-        with open('queue_results.json', 'r') as f:
-            results = json.load(f)
-            for r in results:
-                oracle.update_learning(r['p1'], r['p2'], r['winner'])
-
-    # 2. Process ALL Predictions in Queue
-    if os.path.exists('queue_predict.json'):
-        with open('queue_predict.json', 'r') as f:
-            matches = json.load(f)
-            print(f"Found {len(matches)} matches in queue. Starting SOTA simulations...")
-            for m in matches:
-                # Ensure correct player names and odds are passed
-                oracle.predict(m['p1'], m['p2'], market_odds=m.get('odds'))
+    oracle.predict_queue()
