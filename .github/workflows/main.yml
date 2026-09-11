@@ -1,10 +1,10 @@
 name: TT-Oracle-Autonomous
 on:
   schedule:
-    - cron: '0 */4 * * *' # Runs every 4 hours
-  workflow_dispatch:      # Allows you to trigger it manually
+    - cron: '0 */4 * * *' # Every 4 hours
+  workflow_dispatch:      # Manual trigger button
 jobs:
-  run-engine:
+  run-sota-engine:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -12,16 +12,16 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Install Dependencies
+      - name: Install Deps
         run: pip install -r requirements.txt
       - name: Execute Oracle
         run: python oracle.py
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-      - name: Save Learning
+      - name: Save Learning to GitHub
         run: |
           git config --global user.name 'Oracle-Bot'
           git config --global user.email 'bot@oracle.ai'
           git add players.json
-          git commit -m "Autonomous learning update" || echo "No changes to save"
+          git commit -m "Autonomous Rating Update" || echo "No changes"
           git push
