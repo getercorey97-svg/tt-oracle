@@ -1,8 +1,27 @@
 {
-  "players": {},
-  "settings": {
-    "base_rating": 1500,
-    "base_rd": 350,
-    "base_vol": 0.06
-  }
+    "players": {
+        "Truls Moregard": {
+            "name": "Truls Moregard",
+            "rating": 1662.3108949761174,
+            "rd": 290.3189646747521,
+            "vol": 0.06,
+            "style": "Attacker",
+            "hand": "Right",
+            "rubber": "Inverted"
+        },
+        "Hugo Calderano": {
+            "name": "Hugo Calderano",
+            "rating": 1383.3580797572,
+            "rd": 286.9272066273942,
+            "vol": 0.05999919203103654,
+            "style": "Attacker",
+            "hand": "Right",
+            "rubber": "Inverted"
+        }
+    },
+    "settings": {
+        "base_rating": 1500,
+        "base_rd": 350,
+        "base_vol": 0.06
+    }
 }
