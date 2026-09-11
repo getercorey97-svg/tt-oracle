@@ -1,10 +1,10 @@
-name: TT-Oracle-SOTA-Autonomous
+name: TT-Oracle-Autonomous
 on:
   schedule:
-    - cron: '0 */4 * * *' # Runs every 4 hours
-  workflow_dispatch:      # Allows you to press a button to run it manually
+    - cron: '0 */4 * * *' # Every 4 hours
+  workflow_dispatch:
 jobs:
-  run-oracle:
+  run-sota:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -12,16 +12,20 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Install Dependencies
+      - name: Install Deps
         run: pip install -r requirements.txt
-      - name: Execute Oracle
+      - name: Seed History (If missing)
+        run: python seed_data.py
+      - name: Backtest & Calibrate Math
+        run: python backtest.py
+      - name: Run FanDuel Predictions
         run: python oracle.py
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-      - name: Commit Learning Updates
+      - name: Commit Learning
         run: |
           git config --global user.name 'Oracle-Bot'
           git config --global user.email 'bot@oracle.ai'
-          git add players.json
-          git commit -m "Autonomous Math Update: Ratings Adjusted" || echo "No changes"
+          git add players.json history.csv
+          git commit -m "SOTA Calibration: Math Weights Adjusted" || echo "No changes"
           git push
