@@ -1,0 +1,5 @@
+numpy
+pandas
+glicko2
+requests
+python-dotenv
