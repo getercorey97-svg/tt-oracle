@@ -1,29 +1,17 @@
-name: TT-Oracle-Autonomous
-on:
-  schedule:
-    - cron: '0 */4 * * *' # Every 4 hours
-  workflow_dispatch:
-jobs:
-  run-engine:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install Deps
+- name: Install Dependencies
         run: pip install -r requirements.txt
-      - name: Auto-Fetch Results
+      - name: Global Data Vacuum (Pull Historic Data)
+        run: python global_ingestor.py
+      - name: Auto-Fetch Results (Daily Learning)
         run: python results_fetcher.py
-      - name: Run Engine (Learning & Prediction)
+      - name: Run SOTA Predictions
         run: python oracle.py
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-      - name: Save Learning
+      - name: Commit Database Updates
         run: |
           git config --global user.name 'Oracle-Bot'
           git config --global user.email 'bot@oracle.ai'
           git add players.json
-          git commit -m "Autonomous Result Learning Update" || echo "No changes"
+          git commit -m "Autonomous Intelligence Update: Global Data Pulled" || echo "No changes"
           git push
