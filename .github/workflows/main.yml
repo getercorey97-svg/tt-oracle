@@ -1,4 +1,4 @@
-name: TT-Oracle-Autonomous
+name: TT-Oracle-Autonomous-SOTA
 on:
   schedule:
     - cron: '0 */4 * * *' # Every 4 hours
@@ -12,20 +12,20 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Install Deps
+      - name: Install Dependencies
         run: pip install -r requirements.txt
-      - name: Seed History (If missing)
-        run: python seed_data.py
-      - name: Backtest & Calibrate Math
+      - name: Generate Factual History
+        run: python seed_history.py
+      - name: Calibrate & Backtest
         run: python backtest.py
-      - name: Run FanDuel Predictions
+      - name: Run Predictions
         run: python oracle.py
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-      - name: Commit Learning
+      - name: Commit Learned Parameters
         run: |
           git config --global user.name 'Oracle-Bot'
           git config --global user.email 'bot@oracle.ai'
           git add players.json history.csv
-          git commit -m "SOTA Calibration: Math Weights Adjusted" || echo "No changes"
+          git commit -m "SOTA Update: Factual Calibration Complete" || echo "No changes"
           git push
