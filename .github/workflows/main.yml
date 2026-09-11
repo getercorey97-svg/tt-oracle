@@ -1,17 +1,63 @@
-- name: Install Dependencies
+name: SOTA-TT-Oracle-Autonomous
+on:
+  schedule:
+    - cron: '0 * * * *'  # Runs every hour to check for finished matches
+  push:
+    paths:
+      - 'queue_predict.json' # Runs immediately when you upload a screenshot queue
+  workflow_dispatch:      # Allows you to trigger it manually from your phone
+
+jobs:
+  run-sota-engine:
+    runs-on: ubuntu-latest
+    # Granting write permissions so the engine can save its memory (learning)
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Math Libraries
         run: pip install -r requirements.txt
-      - name: Global Data Vacuum (Pull Historic Data)
-        run: python global_ingestor.py
-      - name: Auto-Fetch Results (Daily Learning)
+
+      - name: 1. Seed History
+        # Only runs if history.csv doesn't exist yet
+        run: python seed_history.py
+
+      - name: 2. Autonomous Learning (Results Scraper)
+        # Checks the web for outcomes of matches in your active_matches.json
         run: python results_fetcher.py
-      - name: Run SOTA Predictions
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+
+      - name: 3. Calibrate Math (Backtest)
+        # Recalibrates style weights against history.csv
+        run: python backtest.py
+
+      - name: 4. Process FanDuel Predictions (Oracle)
+        # Runs 50k simulations on your new queue_predict.json
         run: python oracle.py
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-      - name: Commit Database Updates
+
+      - name: 5. Save State and Clear Queues
         run: |
-          git config --global user.name 'Oracle-Bot'
-          git config --global user.email 'bot@oracle.ai'
-          git add players.json
-          git commit -m "Autonomous Intelligence Update: Global Data Pulled" || echo "No changes"
+          git config --global user.name 'Oracle-SOTA-Bot'
+          git config --global user.email 'bot@sota-oracle.ai'
+          
+          # Stage the memory files (learning database and active matches)
+          git add players.json active_matches.json history.csv
+          
+          # Commit the updated "Brain" back to GitHub
+          # This ensures the engine remembers everything for the next run
+          git commit -m "Autonomous SOTA Update: Memory Persisted & Learning Applied" || echo "No changes to commit"
+          
           git push
