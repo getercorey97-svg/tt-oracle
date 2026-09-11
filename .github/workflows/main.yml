@@ -1,8 +1,8 @@
 name: TT-Oracle-Autonomous-SOTA
 on:
   schedule:
-    - cron: '0 */4 * * *' # Every 4 hours
-  workflow_dispatch:
+    - cron: '0 */4 * * *' # Runs every 4 hours
+  workflow_dispatch:      # Manual trigger
 jobs:
   run-sota:
     runs-on: ubuntu-latest
@@ -14,18 +14,22 @@ jobs:
           python-version: '3.10'
       - name: Install Dependencies
         run: pip install -r requirements.txt
-      - name: Generate Factual History
+      - name: Generate Factual History (If Missing)
         run: python seed_history.py
       - name: Calibrate & Backtest
         run: python backtest.py
-      - name: Run Predictions
+      - name: Run Predictions & Learning
         run: python oracle.py
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-      - name: Commit Learned Parameters
+      - name: Auto-Cleanup Queues and Save Learning
         run: |
           git config --global user.name 'Oracle-Bot'
           git config --global user.email 'bot@oracle.ai'
+          # Remove the queue files so they don't run twice
+          rm -f queue_predict.json
+          rm -f queue_results.json
+          # Add changes and push back to repo
           git add players.json history.csv
-          git commit -m "SOTA Update: Factual Calibration Complete" || echo "No changes"
+          git commit -m "SOTA Update: Learning Saved & Queues Cleared" || echo "No changes"
           git push
