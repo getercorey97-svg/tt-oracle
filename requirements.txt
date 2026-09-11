@@ -2,6 +2,6 @@ numpy
 pandas
 glicko2
 requests
-python-dotenv
 beautifulsoup4
 lxml
+python-dotenv
